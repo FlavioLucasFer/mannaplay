@@ -34,6 +34,7 @@ enum class main_menu_t
 enum class game_t
 {
 	vault,
+	fast_memory,
 };
 
 enum class game_difficulty_t
@@ -64,6 +65,12 @@ void print (uint8_t col, uint8_t line, char message)
 	lcd.print(message);	
 }
 
+void print (uint8_t col, uint8_t line, int message) 
+{
+	lcd.setCursor(col, line);
+	lcd.print(message);	
+}
+
 const char* get_difficulty_name_in_portuguese()
 {
 	switch (game_difficulty)
@@ -83,6 +90,24 @@ const char* get_difficulty_name_in_portuguese()
 	default:
 		return "(medio)";
 	}
+}
+
+void stop_or_continue ()
+{
+	lcd.clear();
+	print(0, 0, "Deseja continuar?");
+	print(0, 1, "Sim = 1 | Nao = 2");
+
+	char key = '3';
+	
+	while (key != '1' && key != '2') {
+		key = keypad.waitForKey();
+
+		if (key == '2')
+			main_menu = main_menu_t::menu;
+	}
+
+	lcd.clear();
 }
 
 void change_difficulty (game_difficulty_t difficulty) 
@@ -153,17 +178,22 @@ void menu ()
 void set_game ()
 {
 	print(0, 0, "<====== JOGAR =====>");
-	print(0, 2, "1 - Jogo do cofre");
+	print(0, 2, "1 - Cofre");
+	print(0, 3, "2 - Memoria rapida");
 
 	char key = '3';
 
-	while (key != '1') {
+	while (key != '1' && key != '2') {
 		key = keypad.waitForKey();
 
 		switch (key)
 		{
 		case '1':
 			game = game_t::vault;
+			break;
+		
+		case '2':
+			game = game_t::fast_memory;
 			break;
 		
 		default:
@@ -175,6 +205,10 @@ void set_game ()
 	{
 	case game_t::vault:
 		vault_game();
+		break;
+
+	case game_t::fast_memory:
+		fast_memory_game();
 		break;
 	
 	default:
@@ -234,7 +268,7 @@ void vault_game ()
 	LinkedList<uint8_t> user_inputs = LinkedList<uint8_t>();
 
 	while (main_menu == main_menu_t::play) {
-		print(0, 0, " << Jogo do cofre >>");
+		print(0, 0, "<<      Cofre     >>");
 		print(3, 2, "APERTE QUALQUER");
 		print(1, 3, "TECLA PARA INICIAR");
 
@@ -299,22 +333,85 @@ void vault_game ()
 
 		delay(1000);
 
+		stop_or_continue();
+	}
+};
+
+void fast_memory_game () 
+{
+	lcd.clear();
+
+	while (main_menu == main_menu_t::play) {
+		boolean win_state = true;
+		uint64_t score = 0;
+		uint16_t speed = blink_speed;
+
+		print(0, 0, "<  Memoria rapida  >");
+		print(3, 2, "APERTE QUALQUER");
+		print(1, 3, "TECLA PARA INICIAR");
+
+		keypad.waitForKey();
 		lcd.clear();
-		print(0, 0, "Deseja continuar?");
-		print(0, 1, "Sim = 1 | Nao = 2");
 
-		char key = '3';
-		
-		while (key != '1' && key != '2') {
-			key = keypad.waitForKey();
+		print(4, 0, "Seja rapido!");
+		print(4, 2, "Iniciando em: ");
 
-			if (key == '2')
-				main_menu = main_menu_t::menu;
+		delay(1000);
+		print(3, 3, "3... ");
+		delay(1000);
+		print(8, 3, "2... ");
+		delay(1000);
+		print(13, 3, "1... ");
+		delay(1000);
+
+		lcd.clear();
+
+		while (win_state) {
+			char key;
+			uint16_t previous_millis;
+			uint8_t random_number = random(10);
+
+			if ((score % 1000) == 0 && speed > (blink_speed / 2)) {
+				if (game_difficulty == game_difficulty_t::elden_ring)
+					speed -= 10;
+				else
+					speed -= 50;
+			}
+
+			digitalWrite(random_number + 2, HIGH);
+
+			previous_millis = millis();
+
+			while ((millis() - previous_millis) < (blink_speed * 2)) {
+				key = keypad.getKey();
+
+				if (key)
+					break;
+			}
+
+			if (key == (char) random_number + 48) {
+				score += 100;
+
+				lcd.clear();
+				print(0, 0, "Pontuacao: ");
+				print(0, 1, (int) score);
+			}
+			else
+				win_state = false;
+
+			digitalWrite(random_number + 2, LOW);
 		}
 
 		lcd.clear();
+
+		print(4, 1, "Sua pontuacao:");
+		print(0, 2, (int) score);
+
+		delay(2000);
+
+		stop_or_continue();
 	}
-};
+}
 
 void setup ()
 {
