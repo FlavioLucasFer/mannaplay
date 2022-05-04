@@ -1,12 +1,21 @@
-#include <Keypad.h>
 #include <inttypes.h>
+#include <Keypad.h>
 #include <LinkedList.h>
 #include <LiquidCrystal_I2C.h>
 
-// KEYPAD CONFIG > BEGIN
+#define PRINT(...) Serial.print(__VA_ARGS__)
+#define PRINT_L(string_literal) Serial.print(F(string_literal))
+#define PRINTLN(...) Serial.println(__VA_ARGS__)
+#define PRINTLN_L(string_literal) Serial.println(F(string_literal))
 
-const byte KEYPAD_ROWS = 4;
-const byte KEYPAD_COLS = 4;
+#define IDLE_TIMEOUT 120000
+
+// KEYPAD CONFIG > BEGIN
+#define KEYPAD_ROWS 4
+#define KEYPAD_COLS 4
+
+#define KEYPAD_ROW_PINS (byte[]){22, 24, 26, 28}
+#define KEYPAD_COL_PINS (byte[]){30, 32, 34, 36}
 
 char keypad_keys[KEYPAD_ROWS][KEYPAD_COLS] = {
 	{'1', '2', '3', 'A'},
@@ -15,26 +24,30 @@ char keypad_keys[KEYPAD_ROWS][KEYPAD_COLS] = {
 	{'*', '0', '#', 'D'},
 };
 
-byte keypad_row_pins[KEYPAD_ROWS] = {22, 24, 26, 28};
-byte keypad_col_pins[KEYPAD_COLS] = {30, 32, 34, 36};
-
-Keypad keypad = Keypad(makeKeymap(keypad_keys), keypad_row_pins, keypad_col_pins, KEYPAD_ROWS, KEYPAD_COLS);
+Keypad keypad = Keypad(makeKeymap(keypad_keys), KEYPAD_ROW_PINS, KEYPAD_COL_PINS, KEYPAD_ROWS, KEYPAD_COLS);
 
 // KEYPAD CONFIG < END
 
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 
-enum class main_menu_t 
+enum class device_state_t
 {
 	menu,
 	play,
 	config_difficulty,
+
+#define MENU_DS device_state_t::menu
+#define PLAY_DS device_state_t::play
+#define CONFIG_DIFFICULTY_DS device_state_t::config_difficulty
 };
 
 enum class game_t
 {
 	vault,
-	fast_memory,
+	think_fast,
+
+#define VAULT_GAME game_t::vault
+#define THINK_FAST_GAME game_t::think_fast
 };
 
 enum class game_difficulty_t
@@ -44,14 +57,22 @@ enum class game_difficulty_t
 	hard,
 	very_hard,
 	elden_ring,
+
+#define EASY_GD game_difficulty_t::easy
+#define MEDIUM_GD game_difficulty_t::medium
+#define HARD_GD game_difficulty_t::hard
+#define VERY_HARD_GD game_difficulty_t::very_hard
+#define ELDEN_RING_GD game_difficulty_t::elden_ring
 };
 
-main_menu_t main_menu = main_menu_t::menu;
-game_t game = game_t::vault;
-game_difficulty_t game_difficulty = game_difficulty_t::medium;
+device_state_t device_state = MENU_DS;
+game_t game = VAULT_GAME;
+game_difficulty_t game_difficulty = MEDIUM_GD;
 
 uint8_t chars_quantity = 3;
 uint16_t blink_speed = 1000;
+
+uint64_t last_user_interation = 0;
 
 void print (uint8_t col, uint8_t line, const char* message) 
 {
@@ -71,24 +92,44 @@ void print (uint8_t col, uint8_t line, int message)
 	lcd.print(message);	
 }
 
-const char* get_difficulty_name_in_portuguese()
+char wait_user_input ()
 {
-	switch (game_difficulty)
-	{
-	case game_difficulty_t::easy:
-		return "(facil)";
+	char key;
+	do {
+		check_idleness();
+		
+		key = keypad.getKey();
+	} while (key == NO_KEY);
+	last_user_interation = millis();
+	return key;
+}
 
-	case game_difficulty_t::hard:
-		return "(dificil)";
+void check_idleness ()
+{
+	if ((millis() - last_user_interation) > IDLE_TIMEOUT)
+		stand_by();
+}
 
-	case game_difficulty_t::very_hard:
-		return "(muito dific.)";
+void stand_by() {
+	lcd.noBacklight();
+	keypad.waitForKey();
+	last_user_interation = millis();
+	lcd.backlight();
+}
 
-	case game_difficulty_t::elden_ring:
-		return "(elden ring)";
-	
-	default:
-		return "(medio)";
+const char* get_difficulty_name_in_portuguese ()
+{
+	switch (game_difficulty) {
+		case EASY_GD:
+			return "(facil)";
+		case HARD_GD:
+			return "(dificil)";
+		case VERY_HARD_GD:
+			return "(muito dific.)";
+		case ELDEN_RING_GD:
+			return "(elden ring)";
+		default:
+			return "(medio)";
 	}
 }
 
@@ -98,50 +139,43 @@ void stop_or_continue ()
 	print(0, 0, "Deseja continuar?");
 	print(0, 1, "Sim = 1 | Nao = 2");
 
-	char key = '3';
+	char key;
 	
-	while (key != '1' && key != '2') {
-		key = keypad.waitForKey();
+	do {
+		key = wait_user_input();
 
 		if (key == '2')
-			main_menu = main_menu_t::menu;
-	}
+			device_state = MENU_DS;
+	} while (key != '1' && key != '2');
 
 	lcd.clear();
 }
 
 void change_difficulty (game_difficulty_t difficulty) 
 {
+	game_difficulty = difficulty;
+
 	switch (difficulty) {
-	case game_difficulty_t::easy:
-		game_difficulty = game_difficulty_t::easy;
-		chars_quantity = 3;
-		blink_speed = 1000;
-		break;
-
-	case game_difficulty_t::hard:
-		game_difficulty = game_difficulty_t::hard;
-		chars_quantity = 5;
-		blink_speed = 400;
-		break;
-
-	case game_difficulty_t::very_hard:
-		game_difficulty = game_difficulty_t::very_hard;
-		chars_quantity = 7;
-		blink_speed = 300;
-		break;
-
-	case game_difficulty_t::elden_ring:
-		game_difficulty = game_difficulty_t::elden_ring;
-		chars_quantity = 10;
-		blink_speed = 100;
-		break;
-	
-	default:
-		game_difficulty = game_difficulty_t::medium;
-		chars_quantity = 3;
-		blink_speed = 500;
-		break;
+		case EASY_GD:
+			chars_quantity = 3;
+			blink_speed = 1000;
+			break;
+		case HARD_GD:
+			chars_quantity = 5;
+			blink_speed = 400;
+			break;
+		case VERY_HARD_GD:
+			chars_quantity = 7;
+			blink_speed = 300;
+			break;
+		case ELDEN_RING_GD:
+			chars_quantity = 10;
+			blink_speed = 100;
+			break;
+		default:
+			chars_quantity = 3;
+			blink_speed = 500;
+			break;
 	}
 }
 
@@ -152,25 +186,22 @@ void menu ()
 	print(0, 2, "1 - Jogar");
 	print(0, 3, "2 - Escolher dific.");
 
-	char key = '3';
+	char key;
 		
-	while (key != '1' && key != '2') {
-		key = keypad.waitForKey();
+	do {
+		key = wait_user_input();
 
-		switch (key)
-		{
-		case '1':
-			main_menu = main_menu_t::play;
-			break;
-
-		case '2':
-			main_menu = main_menu_t::config_difficulty;
-			break;
-		
-		default:
-			break;
+		switch (key) {
+			case '1':
+				device_state = PLAY_DS;
+				break;
+			case '2':
+				device_state = CONFIG_DIFFICULTY_DS;
+				break;
+			default:
+				break;
 		}
-	}
+	} while (key != '1' && key != '2');
 
 	lcd.clear();
 }
@@ -178,42 +209,36 @@ void menu ()
 void set_game ()
 {
 	print(0, 0, "<====== JOGAR =====>");
-	print(0, 2, "1 - Cofre");
-	print(0, 3, "2 - Memoria rapida");
+	print(0, 2, "1 - Lembre a senha");
+	print(0, 3, "2 - Pense rapido");
 
-	char key = '3';
+	char key;
 
-	while (key != '1' && key != '2') {
-		key = keypad.waitForKey();
+	do {
+		key = wait_user_input();
 
-		switch (key)
-		{
-		case '1':
-			game = game_t::vault;
-			break;
-		
-		case '2':
-			game = game_t::fast_memory;
-			break;
-		
-		default:
-			break;
+		switch (key) {
+			case '1':
+				game = VAULT_GAME;
+				break;
+			case '2':
+				game = THINK_FAST_GAME;
+				break;
+			default:
+				break;
 		}
-	}
+	} while (key != '1' && key != '2');
 
-	switch (game)
-	{
-	case game_t::vault:
-		vault_game();
-		break;
-
-	case game_t::fast_memory:
-		fast_memory_game();
-		break;
-	
-	default:
-		vault_game();
-		break;
+	switch (game) {
+		case VAULT_GAME:
+			vault_game();
+			break;
+		case THINK_FAST_GAME:
+			think_fast_game();
+			break;
+		default:
+			vault_game();
+			break;
 	}
 
 	lcd.clear();
@@ -226,39 +251,32 @@ void set_difficulty ()
 	print(0, 2, "4 - Muito dificil");
 	print(0, 3, "5 - Elden Ring");
 
-	char key = '6';
-	uint8_t key_number = (uint8_t) key - 48;
+	uint8_t key;
 
-	while (key_number < 1 || key_number > 5) {
-		key = keypad.waitForKey();
-		key_number = (uint8_t) key - 48;
+	do {
+		key = ((uint8_t) wait_user_input()) - 48;
 
-		switch (key_number)
-		{
-		case 1:
-			change_difficulty(game_difficulty_t::easy);
-			break;
-
-		case 3:
-			change_difficulty(game_difficulty_t::hard);
-			break;
-
-		case 4:
-			change_difficulty(game_difficulty_t::very_hard);
-			break;
-
-		case 5:
-			change_difficulty(game_difficulty_t::elden_ring);
-			break;
-		
-		default:
-			change_difficulty(game_difficulty_t::medium);
-			break;
+		switch (key) {
+			case 1:
+				change_difficulty(EASY_GD);
+				break;
+			case 3:
+				change_difficulty(HARD_GD);
+				break;
+			case 4:
+				change_difficulty(VERY_HARD_GD);
+				break;
+			case 5:
+				change_difficulty(ELDEN_RING_GD);
+				break;
+			default:
+				change_difficulty(MEDIUM_GD);
+				break;
 		}
-	}
+	} while (key < 1 || key > 5);
 
 	lcd.clear();
-	main_menu = main_menu_t::menu;
+	device_state = MENU_DS;
 }
 
 void vault_game ()
@@ -267,12 +285,12 @@ void vault_game ()
 	LinkedList<uint8_t> vault_sequence = LinkedList<uint8_t>();
 	LinkedList<uint8_t> user_inputs = LinkedList<uint8_t>();
 
-	while (main_menu == main_menu_t::play) {
-		print(0, 0, "<<      Cofre     >>");
+	while (device_state == device_state_t::play) {
+		print(0, 0, "<< Lembre a senha >>");
 		print(3, 2, "APERTE QUALQUER");
 		print(1, 3, "TECLA PARA INICIAR");
 
-		keypad.waitForKey();
+		wait_user_input();
 		lcd.clear();
 
 		boolean win_state = true;
@@ -291,9 +309,7 @@ void vault_game ()
 
 		for (uint8_t i = 1; i <= chars_quantity; i++) {
 			uint8_t random_number = random(10);
-
 			vault_sequence.add(random_number);
-
 			digitalWrite(random_number + 2, HIGH);
 			delay(blink_speed);
 			digitalWrite(random_number + 2, LOW);
@@ -304,7 +320,7 @@ void vault_game ()
 		print(0, 0, "Digite a senha: ");
 
 		for (uint8_t i = 1; i <= chars_quantity; i++) {
-			char user_input = keypad.waitForKey();
+			char user_input = wait_user_input();
 
 			print(i - 1, 1, user_input);
 			user_inputs.add((uint8_t)user_input - 48);
@@ -337,20 +353,21 @@ void vault_game ()
 	}
 };
 
-void fast_memory_game () 
+void think_fast_game () 
 {
 	lcd.clear();
 
-	while (main_menu == main_menu_t::play) {
+	while (device_state == PLAY_DS) {
 		boolean win_state = true;
 		uint64_t score = 0;
 		uint16_t speed = blink_speed;
+		uint8_t last_random_number = 10;
 
-		print(0, 0, "<  Memoria rapida  >");
+		print(0, 0, "<<  Pense rapido >>");
 		print(3, 2, "APERTE QUALQUER");
 		print(1, 3, "TECLA PARA INICIAR");
 
-		keypad.waitForKey();
+		wait_user_input();
 		lcd.clear();
 
 		print(4, 0, "Seja rapido!");
@@ -368,25 +385,35 @@ void fast_memory_game ()
 
 		while (win_state) {
 			char key;
-			uint16_t previous_millis;
-			uint8_t random_number = random(10);
+			uint64_t previous_millis;
+			uint8_t random_number;
+
+			while (true) {
+				random_number = random(10);
+
+				if (random_number != last_random_number) {
+					last_random_number = random_number;
+					break;
+				}
+			}
 
 			if ((score % 1000) == 0 && speed > (blink_speed / 2)) {
-				if (game_difficulty == game_difficulty_t::elden_ring)
+				if (game_difficulty == game_difficulty_t::elden_ring) 
 					speed -= 10;
-				else
+				else 
 					speed -= 50;
 			}
 
 			digitalWrite(random_number + 2, HIGH);
-
 			previous_millis = millis();
 
-			while ((millis() - previous_millis) < (blink_speed * 2)) {
+			while ((millis() - previous_millis) < (speed * 2)) {
 				key = keypad.getKey();
 
-				if (key)
+				if (key != NO_KEY) {
+					last_user_interation = millis();
 					break;
+				}
 			}
 
 			if (key == (char) random_number + 48) {
@@ -396,19 +423,16 @@ void fast_memory_game ()
 				print(0, 0, "Pontuacao: ");
 				print(0, 1, (int) score);
 			}
-			else
+			else 
 				win_state = false;
-
+			
 			digitalWrite(random_number + 2, LOW);
 		}
 
 		lcd.clear();
-
 		print(4, 1, "Sua pontuacao:");
 		print(0, 2, (int) score);
-
 		delay(2000);
-
 		stop_or_continue();
 	}
 }
@@ -422,6 +446,7 @@ void setup ()
 	pinMode(3, OUTPUT);
 	pinMode(4, OUTPUT);
 	pinMode(5, OUTPUT);
+	pinMode(6, OUTPUT);
 	pinMode(7, OUTPUT);
 	pinMode(8, OUTPUT);
 	pinMode(9, OUTPUT);
@@ -436,18 +461,16 @@ void setup ()
 
 void loop ()
 {
-	switch (main_menu)
-	{
-	case main_menu_t::play:
-		set_game();
-		break;
-	
-	case main_menu_t::config_difficulty:
-		set_difficulty();
-		break;
-
-	default:
-		menu();
-		break;
-	}
+	check_idleness();
+	switch (device_state) {
+		case PLAY_DS:
+			set_game();
+			break;
+		case CONFIG_DIFFICULTY_DS:
+			set_difficulty();
+			break;
+		default:
+			menu();
+			break;
+		}
 }
